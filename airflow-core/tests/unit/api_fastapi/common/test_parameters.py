@@ -379,6 +379,18 @@ class TestPrefixSearchParam:
         assert "dag_id >= 'example_bash'" in sql
         assert "dag_id < 'example_basi'" in sql
 
+    def test_postgres_prefix_uses_code_point_order(self):
+        from sqlalchemy.dialects import postgresql
+
+        param = _PrefixSearchParam(DagModel.dag_id).set_value("c")
+        sql = str(
+            param.to_orm(select(DagModel)).compile(
+                dialect=postgresql.dialect(),
+                compile_kwargs={"literal_binds": True},
+            )
+        )
+        assert 'COLLATE "C"' in sql
+
     def test_prefix_range_upper_boundary(self):
         """Prefix range bumps the last alphanumeric character."""
         assert _PrefixPatternParam._prefix_range_upper("xy") == "xz"

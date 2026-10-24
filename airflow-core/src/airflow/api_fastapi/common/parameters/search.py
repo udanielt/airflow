@@ -26,7 +26,9 @@ from typing import (
 )
 
 from fastapi import HTTPException, Query, status
-from sqlalchemy import and_, func, or_, true as sql_true
+from sqlalchemy import String, and_, func, or_, true as sql_true
+from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.sql.functions import FunctionElement
 
 from airflow.api_fastapi.common.db.common import SessionDep
 from airflow.api_fastapi.common.parameters.base import BaseParam
@@ -101,6 +103,7 @@ class _PrefixPatternParam(BaseParam[str], ABC):
         collation as the bounds — ``LIKE`` is case-insensitive on SQLite and MySQL ``_ci``
         columns, and would keep leaking case variants.
         """
+        column = _CodePointOrder(column)
         clauses: list[ColumnElement[bool]] = [column >= lower]
         if upper is not None:
             clauses.append(column < upper)
@@ -135,6 +138,26 @@ class _PrefixPatternParam(BaseParam[str], ABC):
 def _build_pipe_clause(pipe_as_or: bool) -> str:
     """Build the per-parameter pipe note. OR is the documented default (see the API description), so only the literal exception is spelled out."""
     return "" if pipe_as_or else "Here `|` is matched literally, not as OR. "
+
+
+class _CodePointOrder(FunctionElement):
+    type = String()
+    inherit_cache = True
+
+    def __init__(self, expr: ColumnElement[Any]) -> None:
+        super().__init__(expr)
+
+
+@compiles(_CodePointOrder)
+def _compile_code_point_order_default(element: _CodePointOrder, compiler, **kw) -> str:
+    (expr,) = element.clauses
+    return compiler.process(expr, **kw)
+
+
+@compiles(_CodePointOrder, "postgresql")
+def _compile_code_point_order_postgresql(element: _CodePointOrder, compiler, **kw) -> str:
+    (expr,) = element.clauses
+    return f"({compiler.process(expr, **kw)}) COLLATE \"C\""
 
 
 _LIKE_ESCAPE_CHAR = "\\"
